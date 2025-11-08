@@ -1,0 +1,5 @@
+Approach: Semantic Divergence Model (BERT-Based Dual Encoder)
+
+This approach detects metaphors by measuring how much a target word’s meaning deviates from its typical literal sense.
+It uses BERT to extract contextual embeddings for each target word and builds a literal prototype by averaging embeddings from all literal examples of that word.
+For each new sentence, the Euclidean distance between the word’s BERT embedding and its prototype captures the degree of semantic shift, and a small classifier predicts whether the word is used literally or metaphorically.
