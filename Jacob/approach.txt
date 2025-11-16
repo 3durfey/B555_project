@@ -1,1 +1,3 @@
-My approach is a basic neural network model using TF-IDF features to detect metaphors in sentences. Each sentence is converted into a numerical vector representing the importance of each word, and the network predicts whether a sentence contains a metaphor.
+My approach is a basic neural network model using TF-IDF features to detect metaphors in sentences. 
+Each sentence is converted into a numerical vector representing the importance of each word, and the 
+network predicts whether a sentence contains a metaphor.
