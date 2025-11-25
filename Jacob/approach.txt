@@ -1,2 +1,7 @@
-The model is a neural network designed to detect metaphors in text by combining a TF-IDF representation of the context around target words with learned embeddings for the target words themselves. TF-IDF represents the importance of each word in the context (5 closest words before and after) surrounding the target word within a sentence, helping the model focus on the most informative words when determining whether the target is used metaphorically. The learned embeddings capture information specific to each target word, and by concatenating these embeddings with the TF-IDF vectors, the neural network can simultaneously leverage both contextual importance and word-specific features to make more accurate metaphor predictions.
+The model is a neural network designed to detect metaphors in text by combining a TF-IDF representation of the context around target words 
+with learned embeddings for the target words themselves. TF-IDF represents the importance of each word in the context (5 closest words before 
+and after) surrounding the target word within a sentence, helping the model focus on the most informative words when determining whether the
+target is used metaphorically. The learned embeddings capture information specific to each target word, and by concatenating these embeddings 
+with the TF-IDF vectors, the neural network can simultaneously leverage both contextual importance and word-specific features to make more 
+accurate metaphor predictions.
 
