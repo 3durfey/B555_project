@@ -1,1 +1,4 @@
-Placehold
+Accuracy: 0.8770
+Precision (macro): 0.8420
+Recall (macro): 0.8542
+F1 (macro): 0.8477
