@@ -1,129 +1,138 @@
 import pandas as pd
 import numpy as np
-from sklearn.model_selection import train_test_split
 from sklearn.feature_extraction.text import TfidfVectorizer
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, TensorDataset
 
-# ---------------------------
-# 1. LOAD DATA
-# ---------------------------
-df = pd.read_csv('/Users/jacoblindsey/Documents/Machine Learning Class 2025/Team Project/train.csv')
-
-# Clean labels
-df["label"] = (
-    df["label"].astype(str)
-    .str.strip()
-    .str.upper()
-    .map({"TRUE": 1, "FALSE": 0})
-)
-df = df.dropna(subset=["label", "text", "metaphorID"])
-
-# Split into train/validation
-train_df, val_df = train_test_split(df, test_size=0.2, random_state=42, stratify=df["label"])
+TARGET_WORDS = {
+    0: "road",
+    1: "candle",
+    2: "light",
+    3: "spice",
+    4: "ride",
+    5: "train",
+    6: "boat"
+}
 
 # ---------------------------
-# 2. TF-IDF VECTORIZATION
+# HELPER FUNCTIONS
 # ---------------------------
-vectorizer = TfidfVectorizer(max_features=5000)
+def clean_labels(dataframe):
+    if "label" in dataframe.columns:
+        dataframe["label"] = (
+            dataframe["label"].astype(str).str.strip().str.upper().map({"TRUE": 1, "FALSE": 0})
+        )
+    return dataframe.dropna(subset=["text", "metaphorID"])
 
-# Include target word in input
-train_df['target_text'] = train_df['text'] + ' ' + train_df['metaphorID'].astype(str)
-val_df['target_text'] = val_df['text'] + ' ' + val_df['metaphorID'].astype(str)
-
-X_train_tfidf = vectorizer.fit_transform(train_df["target_text"]).toarray()
-X_val_tfidf = vectorizer.transform(val_df["target_text"]).toarray()
-
-# ---------------------------
-# 3. ONE-HOT ENCODE METAPHOR ID
-# ---------------------------
-num_words = df['metaphorID'].nunique()  # e.g., 7
-def one_hot_id(mid):
-    vec = np.zeros(num_words)
-    vec[mid] = 1
-    return vec
-
-X_train_id = np.array([one_hot_id(x) for x in train_df['metaphorID']])
-X_val_id = np.array([one_hot_id(x) for x in val_df['metaphorID']])
-
-# Combine TF-IDF features + one-hot target word ID
-X_train = np.hstack([X_train_tfidf, X_train_id])
-X_val = np.hstack([X_val_tfidf, X_val_id])
-
-y_train = train_df["label"].values
-y_val = val_df["label"].values
-
-# Convert to PyTorch tensors
-X_train_tensor = torch.tensor(X_train, dtype=torch.float32)
-y_train_tensor = torch.tensor(y_train, dtype=torch.long)
-X_val_tensor = torch.tensor(X_val, dtype=torch.float32)
-y_val_tensor = torch.tensor(y_val, dtype=torch.long)
-
-train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
-val_dataset = TensorDataset(X_val_tensor, y_val_tensor)
-
-train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-val_loader = DataLoader(val_dataset, batch_size=32)
+def extract_context(sentence, target_word, window_size=5):
+    tokens = sentence.split()
+    indices = [i for i, w in enumerate(tokens) if w.lower() == target_word.lower()]
+    if not indices:
+        return sentence  # fallback if target not found
+    i = indices[0]
+    start = max(0, i - window_size)
+    end = min(len(tokens), i + window_size + 1)
+    return " ".join(tokens[start:end])
 
 # ---------------------------
-# 4. SIMPLE NEURAL NETWORK
+# MODEL DEFINITION
 # ---------------------------
-class SimpleNN(nn.Module):
-    def __init__(self, input_size):
-        super(SimpleNN, self).__init__()
-        self.fc1 = nn.Linear(input_size, 128)
+class MetaphorClassifier(nn.Module):
+    def __init__(self, tfidf_size, num_targets):
+        super().__init__()
+        self.embedding = nn.Embedding(num_targets, 8)
+        self.fc1 = nn.Linear(tfidf_size + 8, 128)
         self.relu = nn.ReLU()
-        self.dropout = nn.Dropout(0.3)
+        self.drop = nn.Dropout(0.3)
         self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, 2)  # binary classification
-    
-    def forward(self, x):
-        x = self.fc1(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        x = self.fc2(x)
-        x = self.relu(x)
-        x = self.dropout(x)
-        x = self.fc3(x)
-        return x
+        self.fc3 = nn.Linear(64, 2)
 
-model = SimpleNN(input_size=X_train.shape[1])
+    def forward(self, x_tfidf, x_target):
+        emb = self.embedding(x_target)
+        x = torch.cat([x_tfidf, emb], dim=1)
+        x = self.relu(self.fc1(x))
+        x = self.drop(x)
+        x = self.relu(self.fc2(x))
+        x = self.drop(x)
+        return self.fc3(x)
 
 # ---------------------------
-# 5. TRAINING SETUP
+# MAIN FUNCTION
 # ---------------------------
-criterion = nn.CrossEntropyLoss()
-optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-num_epochs = 10
+def main():
+    # Paths
+    train_path = '/Users/jacoblindsey/Documents/Machine Learning Class 2025/Team Project/train_data.csv'
+    test_path = '/Users/jacoblindsey/Documents/Machine Learning Class 2025/Team Project/test_data.csv'
 
-# ---------------------------
-# 6. TRAIN LOOP WITH VALIDATION
-# ---------------------------
-for epoch in range(num_epochs):
-    model.train()
-    total_loss = 0
-    for batch_X, batch_y in train_loader:
-        optimizer.zero_grad()
-        outputs = model(batch_X)
-        loss = criterion(outputs, batch_y)
-        loss.backward()
-        optimizer.step()
-        total_loss += loss.item()
-    
-    avg_loss = total_loss / len(train_loader)
-    
-    # Validation
+    # Load data
+    df = pd.read_csv(train_path)
+    td = pd.read_csv(test_path)
+
+    # Clean labels
+    df = clean_labels(df)
+    td = clean_labels(td)
+
+    # Extract context
+    df["target_word"] = df["metaphorID"].map(TARGET_WORDS)
+    td["target_word"] = td["metaphorID"].map(TARGET_WORDS)
+    df["context"] = df.apply(lambda r: extract_context(r["text"], r["target_word"]), axis=1)
+    td["context"] = td.apply(lambda r: extract_context(r["text"], r["target_word"]), axis=1)
+
+    # TF-IDF
+    vectorizer = TfidfVectorizer(max_features=5000)
+    X_train_tfidf = vectorizer.fit_transform(df["context"]).toarray()
+    X_test_tfidf = vectorizer.transform(td["context"]).toarray()
+
+    # Target embeddings
+    unique_targets = len(TARGET_WORDS)
+    target_ids_train = torch.tensor(df["metaphorID"].astype(int).values, dtype=torch.long)
+    target_ids_test = torch.tensor(td["metaphorID"].astype(int).values, dtype=torch.long)
+
+    # Convert TF-IDF and labels to tensors
+    X_train_tensor = torch.tensor(X_train_tfidf, dtype=torch.float32)
+    X_test_tensor = torch.tensor(X_test_tfidf, dtype=torch.float32)
+    y_train_tensor = torch.tensor(df["label"].values, dtype=torch.long)
+    y_test_tensor = torch.tensor(td["label"].values, dtype=torch.long)
+
+    # DataLoaders
+    train_dataset = TensorDataset(X_train_tensor, target_ids_train, y_train_tensor)
+    train_loader = DataLoader(train_dataset, batch_size=32, shuffle=True)
+    test_dataset = TensorDataset(X_test_tensor, target_ids_test, y_test_tensor)
+    test_loader = DataLoader(test_dataset, batch_size=32)
+
+    # Model, loss, optimizer
+    model = MetaphorClassifier(tfidf_size=X_train_tfidf.shape[1], num_targets=unique_targets)
+    criterion = nn.CrossEntropyLoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+
+    # Training loop
+    for epoch in range(10):
+        model.train()
+        total_loss = 0
+        for batch_tfidf, batch_targets, batch_labels in train_loader:
+            optimizer.zero_grad()
+            out = model(batch_tfidf, batch_targets)
+            loss = criterion(out, batch_labels)
+            loss.backward()
+            optimizer.step()
+            total_loss += loss.item()
+        print(f"Epoch {epoch+1}, Loss={total_loss/len(train_loader):.4f}")
+
+    # Testing
     model.eval()
     correct = 0
     total = 0
     with torch.no_grad():
-        for batch_X, batch_y in val_loader:
-            outputs = model(batch_X)
-            _, predicted = torch.max(outputs, 1)
-            total += batch_y.size(0)
-            correct += (predicted == batch_y).sum().item()
-    
-    val_acc = correct / total
-    print(f"Epoch {epoch+1}/{num_epochs}, Loss: {avg_loss:.4f}, Val Acc: {val_acc:.4f}")
+        for batch_tfidf, batch_targets, batch_labels in test_loader:
+            out = model(batch_tfidf, batch_targets)
+            _, pred = torch.max(out, 1)
+            correct += (pred == batch_labels).sum().item()
+            total += batch_labels.size(0)
+    print(f"Test Accuracy: {correct/total:.4f}")
 
+# ---------------------------
+# RUN MAIN
+# ---------------------------
+if __name__ == "__main__":
+    main()
