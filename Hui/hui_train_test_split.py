@@ -98,26 +98,49 @@ class MetaphorDataset(Dataset):
 # ---------------------------------------------------------
 # 5. Model definition
 # ---------------------------------------------------------
-class MetaphorModel(nn.Module):
+class MetaphorClassifier(nn.Module):
     def __init__(self):
-        super().__init__()
-        self.encoder = AutoModel.from_pretrained("bert-base-uncased")
-        self.classifier = nn.Linear(self.encoder.config.hidden_size, 1)
+        super(MetaphorClassifier, self).__init__()
+        
+        # BERT encoder
+        self.bert = BertModel.from_pretrained("bert-base-uncased")
+        
+        # target mask embedding (0 or 1 → 20-dim vector)
+        self.target_emb = nn.Embedding(2, 20)
+
+        # input size now = 768 (CLS) + 20 (target embedding)
+        self.fc1 = nn.Linear(768 + 20, 256)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.3)
+
+        self.fc2 = nn.Linear(256, 64)
+        self.fc3 = nn.Linear(64, 1)
 
     def forward(self, input_ids, attention_mask, target_mask):
-        outputs = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
-        hidden = outputs.last_hidden_state  # [B, T, H]
+        # BERT output
+        outputs = self.bert(input_ids=input_ids,
+                            attention_mask=attention_mask)
 
-        # Average only target-token embeddings
-        target_mask_expanded = target_mask.unsqueeze(-1).float()
-        masked_hidden = hidden * target_mask_expanded
+        cls_embed = outputs.pooler_output         # shape: (B, 768)
+        target_embed = self.target_emb(target_mask)  # shape: (B, L, 20)
 
-        summed = masked_hidden.sum(dim=1)
-        count = target_mask_expanded.sum(dim=1).clamp(min=1e-5)
-        pooled = summed / count
+        # mean-pool all target-token embeddings
+        pooled_target = target_embed.mean(dim=1)  # shape: (B, 20)
 
-        logits = self.classifier(pooled)
-        return logits.squeeze(-1)
+        # concatenate CLS + target embedding
+        x = torch.cat([cls_embed, pooled_target], dim=1)
+
+        # your architecture
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+
+        x = self.fc2(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+
+        x = self.fc3(x)
+        return x
 
 
 # ---------------------------------------------------------
@@ -132,7 +155,7 @@ def train_model(df, epochs=5, batch_size=8, lr=2e-5):
     train_loader = DataLoader(train_ds, batch_size=batch_size, shuffle=True)
     val_loader = DataLoader(val_ds, batch_size=batch_size)
 
-    model = MetaphorModel()
+    model = MetaphorClassifier()
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     model.to(device)
 
