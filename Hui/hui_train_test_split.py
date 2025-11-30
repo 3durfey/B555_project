@@ -1,3 +1,4 @@
+### This code read in the whole train.csv and perform 80/20 train-test split
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
