@@ -1,0 +1,47 @@
+Model Structure:
+The model uses a pretrained BERT encoder to extract contextual embeddings from the input sentence, producing a [CLS] vector of size 768. 
+It then embeds the target word positions into a 20-dimensional vector, mean-pools them, and concatenates with the [CLS] embedding (total 788 features). 
+This combined vector passes through two fully connected layers: first 788 → 256 → ReLU → dropout, then 256 → 64 → ReLU → dropout, and finally a 64 → 1 layer for binary prediction of whether the target word is metaphorical.
+class MetaphorClassifier(nn.Module):
+    def __init__(self):
+        super(MetaphorClassifier, self).__init__()
+        
+        # BERT encoder
+        self.bert = BertModel.from_pretrained("bert-base-uncased")
+        
+        # target mask embedding (0 or 1 → 20-dim vector)
+        self.target_emb = nn.Embedding(2, 20)
+
+        # input size now = 768 (CLS) + 20 (target embedding)
+        self.fc1 = nn.Linear(768 + 20, 256)
+        self.relu = nn.ReLU()
+        self.dropout = nn.Dropout(0.3)
+
+        self.fc2 = nn.Linear(256, 64)
+        self.fc3 = nn.Linear(64, 1)
+
+    def forward(self, input_ids, attention_mask, target_mask):
+        # BERT output
+        outputs = self.bert(input_ids=input_ids,
+                            attention_mask=attention_mask)
+
+        cls_embed = outputs.pooler_output         # shape: (B, 768)
+        target_embed = self.target_emb(target_mask)  # shape: (B, L, 20)
+
+        # mean-pool all target-token embeddings
+        pooled_target = target_embed.mean(dim=1)  # shape: (B, 20)
+
+        # concatenate CLS + target embedding
+        x = torch.cat([cls_embed, pooled_target], dim=1)
+
+        # your architecture
+        x = self.fc1(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+
+        x = self.fc2(x)
+        x = self.relu(x)
+        x = self.dropout(x)
+
+        x = self.fc3(x)
+        return x
