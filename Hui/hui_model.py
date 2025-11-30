@@ -1,12 +1,12 @@
 ### This model load Peter's training and testing data
+### This model load Peter's training and testing data
 import torch
 import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
-from transformers import AutoTokenizer, AutoModel
+from transformers import BertTokenizerFast, BertModel
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import accuracy_score, f1_score
 import pandas as pd
-
 
 # ---------------------------------------------------------
 # 1. Target word mapping from metaphorID
@@ -25,8 +25,9 @@ ID2WORD = {
 # ---------------------------------------------------------
 # 2. Load tokenizer
 # ---------------------------------------------------------
-tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
-
+#tokenizer = AutoTokenizer.from_pretrained("bert-base-uncased")
+BERT_NAME = "bert-base-uncased"
+tokenizer = BertTokenizerFast.from_pretrained(BERT_NAME)
 
 # ---------------------------------------------------------
 # 3. Encode sentence + target word marking
@@ -178,7 +179,7 @@ def train_and_test(train_file="data/train_data.csv", test_file="data/test_data.c
             labels = batch["label"].to(device)
 
             logits = model(input_ids, attn_mask, target_mask)
-            loss = loss_fn(logits, labels)
+            loss = loss_fn(logits.squeeze(-1), labels)
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
