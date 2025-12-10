@@ -3,6 +3,7 @@ from pathlib import Path
 from transformers import BertTokenizerFast, BertModel
 import torch
 from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import precision_recall_fscore_support
 import numpy as np
 
 
@@ -217,10 +218,14 @@ def build_distance_features(df: pd.DataFrame, embeddings, prototypes, split_name
     return X, y
 
 
-def evaluate_split(df: pd.DataFrame, embeddings, split_name: str, prototypes, clf):
-    """Loop through a split, predict labels, and report accuracy."""
-    total = 0
-    correct = 0
+def evaluate_split(df: pd.DataFrame, embeddings, split_name: str, prototypes, clf, return_details: bool = False):
+    """Loop through a split, predict labels, and report metrics.
+
+    If return_details is True, include per-example indices and predictions.
+    """
+    y_true = []
+    y_pred = []
+    evaluated_indices = []
     skipped = 0
     for idx, row in df.iterrows():
         emb = embeddings[idx]
@@ -233,15 +238,31 @@ def evaluate_split(df: pd.DataFrame, embeddings, split_name: str, prototypes, cl
             continue
         dist = torch.norm(emb - proto).item()
         pred_label = int(clf.predict([[dist]])[0])
-        correct += int(pred_label == row["label"])
-        total += 1
+        y_true.append(int(row["label"]))
+        y_pred.append(pred_label)
+        evaluated_indices.append(idx)
 
-    if total == 0:
+    if not y_true:
         raise ValueError(f"No evaluable samples in {split_name} split.")
 
-    accuracy = correct / total
-    print(f"{split_name} accuracy: {accuracy:.4f} (evaluated {total}, skipped {skipped}).")
-    return accuracy
+    accuracy = sum(int(t == p) for t, p in zip(y_true, y_pred)) / len(y_true)
+    precision, recall, f1, _ = precision_recall_fscore_support(
+        y_true, y_pred, average="macro", zero_division=0
+    )
+    print(
+        f"{split_name} metrics — Accuracy: {accuracy:.4f}, "
+        f"Precision (macro): {precision:.4f}, Recall (macro): {recall:.4f}, "
+        f"F1 (macro): {f1:.4f} (evaluated {len(y_true)}, skipped {skipped})."
+    )
+    metrics = (accuracy, precision, recall, f1)
+    if return_details:
+        return metrics, {
+            "indices": evaluated_indices,
+            "y_true": y_true,
+            "y_pred": y_pred,
+            "skipped": skipped,
+        }
+    return metrics
 
 
 # ---------------------------------------------

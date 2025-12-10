@@ -1,0 +1,31 @@
+Project Outline
+---------------
+
+Introduction
+- Task: Metaphor detection using provided train/test CSVs (`metaphorID`, `label`, `text`).
+- Shared goals: Reproduce baseline, compare individual approaches, report metrics (Accuracy, macro Precision/Recall/F1), and generate predictions.
+- Datasets: `data/train.csv`, `data/test_data.csv`; labels normalized TRUE/FALSE → 1/0; target words mapped via `metaphorID`.
+
+Peter’s Approach
+- Model: Frozen `bert-base-uncased` to embed the target word in context; compute L2 distance to literal prototype per target word; classify with Logistic Regression on the 1-D distance feature.
+- Target span detection: Finds target word in raw text via substring + suffixes (s/es/'s/’s/ed/ing), maps char spans to token offsets from the fast tokenizer; if no span aligns, the example is skipped.
+- Prototypes: Built from literal examples in training; warns if a target word lacks literal examples (those rows can’t be used).
+- Features: 1-D distance between target embedding and that word’s literal prototype.
+- Training/Eval scripts: `peter/run_train.py` (train and save `model.joblib`), `peter/run_test.py` (load model, write `predictions.csv`, print metrics).
+- Current metrics (macro): Accuracy 0.7353; Precision 0.6613; Recall 0.5392; F1 0.5120 (older run; replace with latest if rerun).
+- Risks/notes: Brittle pre-tokenization span matching; skips rows when spans/prototypes missing; limited expressiveness from single distance feature.
+
+Jacob’s Approach
+- Placeholder for summary, architecture, scripts, metrics.
+
+Hui’s Approach
+- Placeholder for summary, architecture, scripts, metrics.
+
+Leon’s Approach
+- Placeholder for summary, architecture, scripts, metrics.
+
+Comparative Summary
+- Placeholder for metric table and qualitative comparison.
+
+Next Steps
+- Placeholder for joint recommendations and future work.

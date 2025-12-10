@@ -1,2 +1,5 @@
 
-test accuracy: 0.7353 (evaluated 374, skipped 0).
+Accuracy: 0.7353, 
+Precision (macro): 0.6613, 
+Recall (macro): 0.5392, 
+F1 (macro): 0.5120
