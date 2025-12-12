@@ -1,4 +1,5 @@
 from pathlib import Path
+import argparse
 import pandas as pd
 import torch
 from torch.utils.data import DataLoader, TensorDataset
@@ -15,7 +16,7 @@ def clean_labels(df):
         df["label"] = df["label"].astype(str).str.strip().str.upper().map({"TRUE": 1, "FALSE": 0})
     return df.dropna(subset=["text", "metaphorID"])
 
-def extract_context(sentence, target_word, window_size=5):
+def extract_context(sentence, target_word, window_size):
     tokens = sentence.split()
     indices = [i for i, w in enumerate(tokens) if w.lower() == target_word.lower()]
     if not indices:
@@ -51,28 +52,53 @@ class MetaphorClassifier(torch.nn.Module):
 # Main
 # ---------------------------
 def main():
-    BASE_DIR = Path(__file__).resolve().parents[1]
-    DATA_DIR = BASE_DIR / "data"
-    OUTPUT_DIR = BASE_DIR / "output"
-    OUTPUT_DIR.mkdir(exist_ok=True)
+    parser = argparse.ArgumentParser(description="Test Jacob metaphor model.")
+    parser.add_argument(
+        "--test_csv",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / "data" / "test_data.csv",
+        help="Path to test CSV (expects columns: metaphorID, label, text).",
+    )
+    parser.add_argument(
+        "--model_path",
+        type=Path,
+        default=Path(__file__).resolve().parent / "model.pth",
+        help="Path to trained model weights.",
+    )
+    parser.add_argument(
+        "--vectorizer_path",
+        type=Path,
+        default=Path(__file__).resolve().parent / "tfidf_vectorizer.pkl",
+        help="Path to fitted TF-IDF vectorizer.",
+    )
+    parser.add_argument(
+        "--pred_out",
+        type=Path,
+        default=Path(__file__).resolve().parent / "predictions.csv",
+        help="Path to write predictions CSV.",
+    )
+    parser.add_argument(
+        "--window_size",
+        type=int,
+        default=5,
+        help="Context window size around target word (tokens). Should match training.",
+    )
+    args = parser.parse_args()
 
-    TEST_CSV = DATA_DIR / "test_data.csv"
-    test_df = pd.read_csv(TEST_CSV)
+    test_df = pd.read_csv(args.test_csv)
     test_df = clean_labels(test_df)
     test_df["target_word"] = test_df["metaphorID"].map(TARGET_WORDS)
-    test_df["context"] = test_df.apply(lambda r: extract_context(r["text"], r["target_word"]), axis=1)
+    test_df["context"] = test_df.apply(lambda r: extract_context(r["text"], r["target_word"], args.window_size), axis=1)
 
     # Load vectorizer & model
-    vectorizer_path = OUTPUT_DIR / "tfidf_vectorizer.pkl"
-    model_path = OUTPUT_DIR / "model.pth"
-    with open(vectorizer_path, "rb") as f:
+    with open(args.vectorizer_path, "rb") as f:
         vectorizer = pickle.load(f)
     X_test_tfidf = vectorizer.transform(test_df["context"]).toarray()
     target_ids = torch.tensor(test_df["metaphorID"].astype(int).values, dtype=torch.long)
     y_test = torch.tensor(test_df["label"].values, dtype=torch.long)
 
     model = MetaphorClassifier(tfidf_size=X_test_tfidf.shape[1], num_targets=len(TARGET_WORDS))
-    model.load_state_dict(torch.load(model_path))
+    model.load_state_dict(torch.load(args.model_path, map_location="cpu"))
     model.eval()
 
     # Dataloader
@@ -99,7 +125,8 @@ def main():
     print(f"F1 (macro): {f1:.4f}")
 
     # Save predictions
-    predictions_path = OUTPUT_DIR / "predictions.csv"
+    predictions_path = args.pred_out
+    predictions_path.parent.mkdir(parents=True, exist_ok=True)
     test_df["predicted_label"] = preds
     test_df.to_csv(predictions_path, index=False)
     print(f"Predictions saved to: {predictions_path.resolve()}")

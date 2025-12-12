@@ -1,4 +1,5 @@
 from pathlib import Path
+import argparse
 import pandas as pd
 import torch
 import torch.nn as nn
@@ -19,7 +20,7 @@ def clean_labels(df):
         df["label"] = df["label"].astype(str).str.strip().str.upper().map({"TRUE": 1, "FALSE": 0})
     return df.dropna(subset=["text", "metaphorID"])
 
-def extract_context(sentence, target_word, window_size=5):
+def extract_context(sentence, target_word, window_size):
     tokens = sentence.split()
     indices = [i for i, w in enumerate(tokens) if w.lower() == target_word.lower()]
     if not indices:
@@ -55,37 +56,84 @@ class MetaphorClassifier(nn.Module):
 # Main
 # ---------------------------
 def main():
-    # Project directories
-    BASE_DIR = Path(__file__).resolve().parents[1]   # project root
-    DATA_DIR = BASE_DIR / "data"
-    OUTPUT_DIR = BASE_DIR / "output"
-    OUTPUT_DIR.mkdir(exist_ok=True)
+    parser = argparse.ArgumentParser(description="Train Jacob metaphor model.")
+    parser.add_argument(
+        "--train_csv",
+        type=Path,
+        default=Path(__file__).resolve().parents[1] / "data" / "train.csv",
+        help="Path to training CSV (expects columns: metaphorID, label, text).",
+    )
+    parser.add_argument(
+        "--model_out",
+        type=Path,
+        default=Path(__file__).resolve().parent / "model.pth",
+        help="Path to save trained model weights.",
+    )
+    parser.add_argument(
+        "--vectorizer_out",
+        type=Path,
+        default=Path(__file__).resolve().parent / "tfidf_vectorizer.pkl",
+        help="Path to save fitted TF-IDF vectorizer.",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=10,
+        help="Number of training epochs.",
+    )
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=32,
+        help="Batch size.",
+    )
+    parser.add_argument(
+        "--lr",
+        type=float,
+        default=0.001,
+        help="Learning rate.",
+    )
+    parser.add_argument(
+        "--window_size",
+        type=int,
+        default=5,
+        help="Context window size around target word (in tokens).",
+    )
+    parser.add_argument(
+        "--max_features",
+        type=int,
+        default=5000,
+        help="Max features for TF-IDF vectorizer.",
+    )
+    args = parser.parse_args()
 
-    TRAIN_CSV = DATA_DIR / "train_data.csv"
+    BASE_DIR = Path(__file__).resolve().parents[1]   # project root
+    args.model_out.parent.mkdir(parents=True, exist_ok=True)
+    args.vectorizer_out.parent.mkdir(parents=True, exist_ok=True)
 
     # Load & clean
-    df = pd.read_csv(TRAIN_CSV)
+    df = pd.read_csv(args.train_csv)
     df = clean_labels(df)
     df["target_word"] = df["metaphorID"].map(TARGET_WORDS)
-    df["context"] = df.apply(lambda r: extract_context(r["text"], r["target_word"]), axis=1)
+    df["context"] = df.apply(lambda r: extract_context(r["text"], r["target_word"], args.window_size), axis=1)
 
     # TF-IDF
-    vectorizer = TfidfVectorizer(max_features=5000)
+    vectorizer = TfidfVectorizer(max_features=args.max_features)
     X_tfidf = vectorizer.fit_transform(df["context"]).toarray()
 
     # Targets & labels
     target_ids = torch.tensor(df["metaphorID"].astype(int).values, dtype=torch.long)
     y = torch.tensor(df["label"].values, dtype=torch.long)
     dataset = TensorDataset(torch.tensor(X_tfidf, dtype=torch.float32), target_ids, y)
-    dataloader = DataLoader(dataset, batch_size=32, shuffle=True)
+    dataloader = DataLoader(dataset, batch_size=args.batch_size, shuffle=True)
 
     # Model
     model = MetaphorClassifier(tfidf_size=X_tfidf.shape[1], num_targets=len(TARGET_WORDS))
     criterion = nn.CrossEntropyLoss()
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     # Training loop
-    for epoch in range(10):
+    for epoch in range(args.epochs):
         model.train()
         total_loss = 0
         for batch_X, batch_targets, batch_y in dataloader:
@@ -95,20 +143,16 @@ def main():
             loss.backward()
             optimizer.step()
             total_loss += loss.item()
-        print(f"Epoch {epoch+1}/10, Loss={total_loss/len(dataloader):.4f}")
+        print(f"Epoch {epoch+1}/{args.epochs}, Loss={total_loss/len(dataloader):.4f}")
 
     # Save model & vectorizer
-    model_path = OUTPUT_DIR / "model.pth"
-    vectorizer_path = OUTPUT_DIR / "tfidf_vectorizer.pkl"
-    torch.save(model.state_dict(), model_path)
-    with open(vectorizer_path, "wb") as f:
+    torch.save(model.state_dict(), args.model_out)
+    with open(args.vectorizer_out, "wb") as f:
         pickle.dump(vectorizer, f)
 
-    print(f"Model saved to {model_path}")
-    print(f"Vectorizer saved to {vectorizer_path}")
+    print(f"Model saved to {args.model_out}")
+    print(f"Vectorizer saved to {args.vectorizer_out}")
 
 
 if __name__ == "__main__":
     main()
-
-
